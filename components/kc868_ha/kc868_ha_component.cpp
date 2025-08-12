@@ -45,6 +45,7 @@ void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
 void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 
 void KC868HaComponent::loop() {
+  // 1. Read all available bytes into the buffer
   uint8_t byte;
   while (this->available()) {
     this->read_byte(&byte);
@@ -53,17 +54,16 @@ void KC868HaComponent::loop() {
 
   // 2. Try to find a valid 21-byte frame in the buffer
   while (this->rx_buffer_.size() >= 21) {
-    // Check if the first 21 bytes form a valid frame
     uint8_t* frame_start = this->rx_buffer_.data();
     uint8_t crc_data[19];
     memcpy(crc_data, frame_start, 19);
 
     uint16_t calculated_crc = this->crc16(crc_data, 19);
-    uint8_t crc_lo = static_cast<uint8_t>(calculated_crc & 0x00FF);
-    uint8_t crc_hi = static_cast<uint8_t>((calculated_crc >> 8) & 0xFF);
+    uint8_t calc_lo = static_cast<uint8_t>(calculated_crc & 0x00FF);
+    uint8_t calc_hi = static_cast<uint8_t>((calculated_crc >> 8) & 0xFF);
 
-    // 3. Check for CRC match (assuming High Byte is sent first, then Low Byte)
-    if (frame_start[19] == crc_hi && frame_start[20] == crc_lo) {
+    // 3. Check for CRC match. Your logs confirm the order is Low Byte then High Byte.
+    if (frame_start[19] == calc_lo && frame_start[20] == calc_hi) {
       // CRC MATCH! This is a valid frame.
       ESP_LOGD(TAG, "KC868-HA Received: %s", this->format_uart_data_(frame_start, 21));
       this->handle_frame_(frame_start, 21);
@@ -71,12 +71,10 @@ void KC868HaComponent::loop() {
       // Remove the processed frame from the buffer
       this->rx_buffer_.erase(this->rx_buffer_.begin(), this->rx_buffer_.begin() + 21);
       
-      // Continue the loop to check for another frame immediately
       continue;
     }
 
-    // 4. CRC MISMATCH. The start of the buffer is not a valid frame.
-    // Discard the first byte and slide the window forward.
+    // 4. CRC MISMATCH. Discard the first byte and slide the window forward.
     this->rx_buffer_.erase(this->rx_buffer_.begin());
   }
 }
@@ -142,7 +140,7 @@ void KC868HaSwitch::write_state(bool state) {
   uint8_t final_frame[23];
   memcpy(final_frame, data_payload, sizeof(data_payload));
   final_frame[21] = static_cast<uint8_t>(crc & 0x00FF);
-  final_frame[22] = static_cast<uint8_t>((crc & 0xFF00) >> 8);
+  final_frame[22] = static_cast<uint8_t>((crc >> 8) & 0xFF);
 
   this->parent_->send_command(final_frame, sizeof(final_frame));
   this->publish_state(state);
