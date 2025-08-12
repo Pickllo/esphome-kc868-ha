@@ -59,11 +59,11 @@ void KC868HaComponent::loop() {
     memcpy(crc_data, frame_start, 19);
 
     uint16_t calculated_crc = this->crc16(crc_data, 19);
-    uint8_t crc_h = static_cast<uint8_t>(calculated_crc & 0x00FF);
-    uint8_t crc_l = static_cast<uint8_t>((calculated_crc & 0xFF00) >> 8);
+    uint8_t crc_lo = static_cast<uint8_t>(calculated_crc & 0x00FF);
+    uint8_t crc_hi = static_cast<uint8_t>((calculated_crc >> 8) & 0xFF);
 
-    // 3. Check for CRC match
-    if (frame_start[19] == crc_h && frame_start[20] == crc_l) {
+    // 3. Check for CRC match (assuming High Byte is sent first, then Low Byte)
+    if (frame_start[19] == crc_hi && frame_start[20] == crc_lo) {
       // CRC MATCH! This is a valid frame.
       ESP_LOGD(TAG, "KC868-HA Received: %s", this->format_uart_data_(frame_start, 21));
       this->handle_frame_(frame_start, 21);
