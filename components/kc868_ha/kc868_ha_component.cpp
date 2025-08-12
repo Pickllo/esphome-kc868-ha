@@ -50,7 +50,9 @@ void KC868HaComponent::loop() {
   }
 
   uint8_t frame_buffer[21];
-  this->parent_->peek_array(frame_buffer, 21);
+  for (int i = 0; i < 21; i++) {
+    frame_buffer[i] = this->peek_byte(i).value();
+  }
 
   uint8_t crc_data[19];
   memcpy(crc_data, frame_buffer, 19);
@@ -108,7 +110,7 @@ void KC868HaSwitch::write_state(bool state) {
   }
 
   for (auto *other_switch : this->get_all_switches()) {
-    if (other_switch == this) continue;
+    if (other_switch == this) continue; 
     if (other_switch->get_target_relay_controller_addr() != this->get_target_relay_controller_addr()) continue;
     
     int other_channel = other_switch->get_bind_output();
@@ -126,9 +128,9 @@ void KC868HaSwitch::write_state(bool state) {
   final_frame[22] = static_cast<uint8_t>((crc & 0xFF00) >> 8);
 
   this->parent_->send_command(final_frame, sizeof(final_frame));
-  
+
   this->publish_state(state);
 }
 
-} // namespace kc868_ha
-} // namespace esphome
+} 
+} 
