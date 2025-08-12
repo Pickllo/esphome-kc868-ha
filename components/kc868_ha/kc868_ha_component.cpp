@@ -62,6 +62,8 @@ void KC868HaComponent::loop() {
     uint8_t calc_lo = static_cast<uint8_t>(calculated_crc & 0x00FF);
     uint8_t calc_hi = static_cast<uint8_t>((calculated_crc >> 8) & 0xFF);
 
+    ESP_LOGD(TAG, "CRC Check: Recv=[%02X %02X], Calc=[%02X %02X]", frame_start[19], frame_start[20], calc_lo, calc_hi);
+
     // 3. Check for CRC match. Your logs confirm the order is Low Byte then High Byte.
     if (frame_start[19] == calc_lo && frame_start[20] == calc_hi) {
       // CRC MATCH! This is a valid frame.
