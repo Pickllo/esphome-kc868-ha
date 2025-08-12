@@ -1,179 +1,134 @@
 #include "kc868_ha_component.h"
-#include "math.h"
+#include "esphome/core/log.h"
+#include <cstring> 
+#include <cstdio>  
 
 namespace esphome {
-  namespace kc868_ha {
+namespace kc868_ha {
 
-    static const char* const TAG = "kc868_ha";
+static const char *const TAG = "kc868_ha";
 
-    void KC868HaComponent::setup() {
-      ESP_LOGD(TAG, "KC868HaComponent::setup");
-    }
+char *KC868HaComponent::format_uart_data_(const uint8_t *uart_data, int length) {
+  static char str[256] = {0};
+  char tmp[10];
+  str[0] = '\0';
+  for (int i = 0; i < length; i++) {
+    sprintf(tmp, "%02X:", uart_data[i]);
+    strncat(str, tmp, sizeof(str) - strlen(str) - 1);
+  }
+  if (length > 0) {
+    str[strlen(str) - 1] = '\0';
+  }
+  return str;
+}
 
-    void KC868HaComponent::loop() {
-      while(available() >= 21) {
-        uint8_t data[21];
-        for (int i = 0; i <= 20; i++) {
-          uint8_t c = read();
-          data[i] = c;
-        }
-
-        ESP_LOGD(TAG, "uart bus receive %s", format_uart_data(data, 21));
-
-        uint8_t crc_data[19] =  {
-          data[0],data[1],data[2],data[3],
-          data[4],data[5],data[6],data[7],
-          data[8],data[9],data[10],data[11],
-          data[12],data[13],data[14],data[15],
-          data[16],data[17],data[18]};
-        uint16_t crc = crc16(crc_data, sizeof(crc_data));
-        uint8_t crc_h = static_cast<uint8_t>(crc & 0x00FF);
-        uint8_t crc_l = static_cast<uint8_t>((crc & 0xFF00) >> 8);
-        ESP_LOGD(TAG, "uart crc=%x:%x, calc crc=%x:%x", data[19], data[20], crc_h, crc_l);
-
-        if (!(data[19] == crc_h && data[20] == crc_l)) {
-          ESP_LOGW(TAG, "crc check failed. ignore data");
-
-          while(available() > 0) {
-            read();
-          }
-
-          return;
-        }
-
-        for (auto & element : this->binary_sensors_) {
-          ESP_LOGD(TAG, "dump kc868_ha config, target_relay_controller_addr=%d, switch_adapter_addr=%d, bind_output=%d", 
-              element->get_target_relay_controller_addr(),
-              element->get_switch_adapter_addr(),
-              element->get_bind_output());
-        }
-
-        for (auto & element : this->binary_sensors_)
-          {
-            if (element->get_target_relay_controller_addr() == data[0] &&
-                element->get_switch_adapter_addr() == data[3]) {
-
-              ESP_LOGD(TAG, "found a kc868_ha board, target_relay_controller_addr=%d, switch_adapter_addr=%d, bind_output=%d", 
-              element->get_target_relay_controller_addr(),
-              element->get_switch_adapter_addr(),
-              element->get_bind_output());
-              for (int i = 7; i <= 17; i += 2) {
-                if (data[i] == (element->get_bind_output() + 100)) {
-                  if (data[i+1] == 1) {
-                    element->publish_state(true);
-                  } else if (data[i+1] == 2) {
-                    element->publish_state(false);
-                  }
-                }
-              }
-            }
-          }
-      }
-    }
-
-    void KC868HaComponent::dump_config(){
-      ESP_LOGCONFIG(TAG, "KC868HaComponent::dump_config");
-    }
-
-    void KC868HaBinarySensor::setup() {
-      ESP_LOGD(TAG, "KC868HaBinarySensor::setup");
-      this->publish_initial_state(false);
-    }
-    void KC868HaBinarySensor::dump_config(){
-      ESP_LOGCONFIG(TAG, "KC868HaBinarySensor::dump_config");
-    }
-
-    void KC868HaSwitch::setup() {
-      ESP_LOGD(TAG, "KC868HaSwitch::setup");
-
-      bool initial_state = this->get_initial_state_with_restore_mode().value_or(false);
-
-      if (initial_state) {
-        this->turn_on();
+uint16_t KC868HaComponent::crc16(const uint8_t *data, uint8_t length) {
+  uint16_t crc = 0xFFFF;
+  for (uint8_t i = 0; i < length; i++) {
+    crc ^= data[i];
+    for (uint8_t j = 8; j > 0; j--) {
+      if (crc & 0x0001) {
+        crc = (crc >> 1) ^ 0xA001;
       } else {
-        this->turn_off();
+        crc >>= 1;
       }
     }
-    void KC868HaSwitch::dump_config(){
-      ESP_LOGCONFIG(TAG, "KC868HaSwitch::dump_config");
-    }
+  }
+  return crc;
+}
 
-    void KC868HaSwitch::write_state(bool state) {
+void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
+    this->write_array(data, len);
+    ESP_LOGD(TAG, "KC868-HA Sent: %s", this->format_uart_data_(data, len));
+}
 
-      uint8_t data[21] = {  this->get_target_relay_controller_addr(), 0x03, 0x12, 0x55, 0xBB,
-                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 
-      int channel = this->get_bind_output();
-      int byteIndex = (channel - 1) / 8; // determine which byte to modify
-      int bitPosition = (channel - 1) % 8; // determine which bit to modify
+void KC868HaComponent::loop() {
+  if (this->available() < 21) {
+    return;
+  }
 
-      for (auto &element : *(this->switches_)) {
-        if ((element->get_target_relay_controller_addr() == this->get_target_relay_controller_addr()) &&
-            (element->get_bind_output() != this->get_bind_output())) {
-          int elementChannel = element->get_bind_output();
-          int elementByteIndex = (elementChannel - 1) / 8;
-          int elementBitPosition = (elementChannel - 1) % 8;
-          if (element->state == true) {
-            data[20 - elementByteIndex] |= (1 << elementBitPosition); // set the bit
-          } else {
-            data[20 - elementByteIndex] &= ~(1 << elementBitPosition); // clear the bit
+  uint8_t frame_buffer[21];
+  this->peek_array(frame_buffer, 21);
+
+  uint8_t crc_data[19];
+  memcpy(crc_data, frame_buffer, 19);
+  uint16_t calculated_crc = this->crc16(crc_data, sizeof(crc_data));
+  uint8_t crc_h = static_cast<uint8_t>(calculated_crc & 0x00FF);
+  uint8_t crc_l = static_cast<uint8_t>((calculated_crc & 0xFF00) >> 8);
+
+  if (frame_buffer[19] == crc_h && frame_buffer[20] == crc_l) {
+    this->read_array(frame_buffer, 21);
+    ESP_LOGD(TAG, "KC868-HA Received: %s", this->format_uart_data_(frame_buffer, 21));
+
+    for (auto *sensor : this->binary_sensors_) {
+      if (sensor->get_target_relay_controller_addr() == frame_buffer[0] &&
+          sensor->get_switch_adapter_addr() == frame_buffer[3]) {
+        for (int i = 7; i <= 17; i += 2) {
+          if (frame_buffer[i] == (sensor->get_bind_output() + 100)) {
+            sensor->publish_state(frame_buffer[i + 1] == 1);
           }
         }
       }
-
-      if (state == true) {
-        data[20 - byteIndex] |= (1 << bitPosition); // set the bit
-      } else {
-        data[20 - byteIndex] &= ~(1 << bitPosition); // clear the bit
-      }
-
-      uint16_t crc = crc16(data, sizeof(data));
-      uint8_t crc_h = static_cast<uint8_t>(crc & 0x00FF);
-      uint8_t crc_l = static_cast<uint8_t>((crc & 0xFF00) >> 8);
-      uint8_t uart_data[23] = {data[0], data[1], data[2], data[3],
-                               data[4], data[5], data[6], data[7], data[8], data[9], data[10], data[11],
-                               data[12], data[13], data[14], data[15], data[16], data[17], data[18], data[19], data[20],
-                               crc_h, crc_l};
-
-      this->uart_->write_array(uart_data, sizeof(uart_data));
-
-      ESP_LOGD(TAG, "uart bus send %s", format_uart_data(uart_data, 23));
-      this->publish_state(state);
     }
-
-    uint16_t crc16(uint8_t *data, uint8_t length) {
-      uint16_t crc = 0xFFFF;
-
-      for (uint8_t i = 0; i < length; i++) {
-        crc ^= data[i];
-        for (uint8_t j = 8; j > 0; j--) {
-          if (crc & 0x0001) {
-            crc = (crc >> 1) ^ 0xA001;
-          } else {
-            crc >>= 1;
-          }
-        }
-      }
-
-      return crc;
-    }
-
-    char* format_uart_data(uint8_t *uart_data, int length) {
-      static char str[256] = {0};  // Output buffer
-      char tmp[10];  // Temporary buffer
-
-      str[0] = '\0';  // Clear the buffer
-      for (int i = 0; i < length; i++) {
-        sprintf(tmp, "%x:", uart_data[i]);
-        strcat(str, tmp);  // Append to str
-      }
-
-      str[strlen(str)-1] = '\0';  // Replace the last colon with a null terminator
-
-      return str;
-    }
-
-
+  } else {
+    this->read(); 
   }
 }
+
+void KC868HaComponent::dump_config() { ESP_LOGCONFIG(TAG, "KC868HaComponent::dump_config"); }
+
+void KC868HaBinarySensor::setup() { this->publish_initial_state(false); }
+void KC868HaBinarySensor::dump_config() { LOG_BINARY_SENSOR("", "KC868-HA Binary Sensor", this); }
+
+const std::vector<KC868HaSwitch *>& KC868HaSwitch::get_all_switches() {
+    return this->parent_->get_switches();
+}
+
+void KC868HaSwitch::setup() {
+  auto restored = this->get_initial_state_with_restore_mode();
+  if (restored.has_value()) {
+      this->write_state(*restored);
+  }
+}
+
+void KC868HaSwitch::dump_config() { LOG_SWITCH("", "KC868-HA Switch", this); }
+
+void KC868HaSwitch::write_state(bool state) {
+  uint8_t data_payload[21] = {this->get_target_relay_controller_addr(), 0x03, 0x12, 0x55, 0xBB,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                              0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+  int channel = this->get_bind_output();
+  int byte_index = (channel - 1) / 8;
+  int bit_position = (channel - 1) % 8;
+  if (state) {
+    data_payload[20 - byte_index] |= (1 << bit_position);
+  }
+
+  for (auto *other_switch : this->get_all_switches()) {
+    if (other_switch == this) continue;
+    if (other_switch->get_target_relay_controller_addr() != this->get_target_relay_controller_addr()) continue;
+    
+    int other_channel = other_switch->get_bind_output();
+    int other_byte_index = (other_channel - 1) / 8;
+    int other_bit_position = (other_channel - 1) % 8;
+    if (other_switch->state) {
+      data_payload[20 - other_byte_index] |= (1 << other_bit_position);
+    }
+  }
+
+  uint16_t crc = this->parent_->crc16(data_payload, sizeof(data_payload));
+  uint8_t final_frame[23];
+  memcpy(final_frame, data_payload, sizeof(data_payload));
+  final_frame[21] = static_cast<uint8_t>(crc & 0x00FF);
+  final_frame[22] = static_cast<uint8_t>((crc & 0xFF00) >> 8);
+
+  this->parent_->send_command(final_frame, sizeof(final_frame));
+  
+  this->publish_state(state);
+}
+
+} // namespace kc868_ha
+} // namespace esphome
