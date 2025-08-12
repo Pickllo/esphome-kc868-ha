@@ -50,7 +50,8 @@ class KC868HaSwitch : public Component, public switch_::Switch {
 
 class KC868HaComponent : public Component, public uart::UARTDevice {
  public:
-  KC868HaComponent() = default;
+  // THIS IS THE CORRECTED CONSTRUCTOR
+  KC868HaComponent(uart::UARTComponent *parent) : uart::UARTDevice(parent) {}
 
   void register_binary_sensor(KC868HaBinarySensor *obj) { this->binary_sensors_.push_back(obj); }
   void register_switch(KC868HaSwitch *obj) {
