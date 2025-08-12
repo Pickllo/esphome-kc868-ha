@@ -50,7 +50,7 @@ void KC868HaComponent::loop() {
   }
 
   uint8_t frame_buffer[21];
-  this->peek_array(frame_buffer, 21);
+  this->parent_->peek_array(frame_buffer, 21);
 
   uint8_t crc_data[19];
   memcpy(crc_data, frame_buffer, 19);
