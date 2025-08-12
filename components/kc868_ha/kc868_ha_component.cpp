@@ -45,48 +45,65 @@ void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
 void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 
 void KC868HaComponent::loop() {
-  if (this->available() < 21) {
-    return;
+  uint8_t byte;
+  while (this->available()) {
+    this->read_byte(&byte);
+    this->rx_buffer_.push_back(byte);
   }
 
-  uint8_t frame_buffer[21];
-  for (int i = 0; i < 21; i++) {
-    frame_buffer[i] = this->peek_byte(i).value();
+  // 2. Try to find a valid 21-byte frame in the buffer
+  while (this->rx_buffer_.size() >= 21) {
+    // Check if the first 21 bytes form a valid frame
+    uint8_t* frame_start = this->rx_buffer_.data();
+    uint8_t crc_data[19];
+    memcpy(crc_data, frame_start, 19);
+
+    uint16_t calculated_crc = this->crc16(crc_data, 19);
+    uint8_t crc_h = static_cast<uint8_t>(calculated_crc & 0x00FF);
+    uint8_t crc_l = static_cast<uint8_t>((calculated_crc & 0xFF00) >> 8);
+
+    // 3. Check for CRC match
+    if (frame_start[19] == crc_h && frame_start[20] == crc_l) {
+      // CRC MATCH! This is a valid frame.
+      ESP_LOGD(TAG, "KC868-HA Received: %s", this->format_uart_data_(frame_start, 21));
+      this->handle_frame_(frame_start, 21);
+      
+      // Remove the processed frame from the buffer
+      this->rx_buffer_.erase(this->rx_buffer_.begin(), this->rx_buffer_.begin() + 21);
+      
+      // Continue the loop to check for another frame immediately
+      continue;
+    }
+
+    // 4. CRC MISMATCH. The start of the buffer is not a valid frame.
+    // Discard the first byte and slide the window forward.
+    this->rx_buffer_.erase(this->rx_buffer_.begin());
   }
+}
 
-  uint8_t crc_data[19];
-  memcpy(crc_data, frame_buffer, 19);
-  uint16_t calculated_crc = this->crc16(crc_data, sizeof(crc_data));
-  uint8_t crc_h = static_cast<uint8_t>(calculated_crc & 0x00FF);
-  uint8_t crc_l = static_cast<uint8_t>((calculated_crc & 0xFF00) >> 8);
+void KC868HaComponent::handle_frame_(const uint8_t *frame, size_t len) {
+  if (len < 21) return;
 
-  if (frame_buffer[19] == crc_h && frame_buffer[20] == crc_l) {
-    this->read_array(frame_buffer, 21);
-    ESP_LOGD(TAG, "KC868-HA Received: %s", this->format_uart_data_(frame_buffer, 21));
-
-    for (auto *sensor : this->binary_sensors_) {
-      if (sensor->get_target_relay_controller_addr() == frame_buffer[0] &&
-          sensor->get_switch_adapter_addr() == frame_buffer[3]) {
-        for (int i = 7; i <= 17; i += 2) {
-          if (frame_buffer[i] == (sensor->get_bind_output() + 100)) {
-            sensor->publish_state(frame_buffer[i + 1] == 1);
-          }
+  for (auto *sensor : this->binary_sensors_) {
+    if (sensor->get_target_relay_controller_addr() == frame[0] &&
+        sensor->get_switch_adapter_addr() == frame[3]) {
+      for (int i = 7; i <= 17; i += 2) {
+        if (frame[i] == (sensor->get_bind_output() + 100)) {
+          sensor->publish_state(frame[i + 1] == 1);
         }
       }
     }
-  } else {
-    this->read(); 
   }
 }
 
 void KC868HaComponent::dump_config() { ESP_LOGCONFIG(TAG, "KC868HaComponent::dump_config"); }
 
-void KC868HaBinarySensor::setup() { this->publish_initial_state(false); }
-void KC868HaBinarySensor::dump_config() { LOG_BINARY_SENSOR("", "KC868-HA Binary Sensor", this); }
-
 const std::vector<KC868HaSwitch *>& KC868HaSwitch::get_all_switches() {
     return this->parent_->get_switches();
 }
+
+void KC868HaBinarySensor::setup() { this->publish_initial_state(false); }
+void KC868HaBinarySensor::dump_config() { LOG_BINARY_SENSOR("", "KC868-HA Binary Sensor", this); }
 
 void KC868HaSwitch::setup() {
   auto restored = this->get_initial_state_with_restore_mode();
@@ -110,7 +127,7 @@ void KC868HaSwitch::write_state(bool state) {
   }
 
   for (auto *other_switch : this->get_all_switches()) {
-    if (other_switch == this) continue; 
+    if (other_switch == this) continue;
     if (other_switch->get_target_relay_controller_addr() != this->get_target_relay_controller_addr()) continue;
     
     int other_channel = other_switch->get_bind_output();
@@ -128,9 +145,8 @@ void KC868HaSwitch::write_state(bool state) {
   final_frame[22] = static_cast<uint8_t>((crc & 0xFF00) >> 8);
 
   this->parent_->send_command(final_frame, sizeof(final_frame));
-
   this->publish_state(state);
 }
 
-} 
-} 
+} // namespace kc868_ha
+} // namespace esphome
