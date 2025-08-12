@@ -5,7 +5,7 @@ from esphome.components import uart
 
 DEPENDENCIES = ["uart"]
 AUTO_LOAD = ['binary_sensor', 'switch']
-MULTI_CONF = False
+MULTI_CONF = TRUE
 
 KC868_HA_ID = 'kc868_ha_id'
 
