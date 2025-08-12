@@ -42,7 +42,6 @@ class KC868HaSwitch : public Component, public switch_::Switch {
   
   const std::vector<KC868HaSwitch *>& get_all_switches();
 
-
  protected:
   KC868HaComponent *parent_;
   uint8_t target_relay_controller_addr_;
@@ -64,14 +63,15 @@ class KC868HaComponent : public Component, public uart::UARTDevice {
   void setup() override;
   void loop() override;
   void dump_config() override;
-
-  void send_command(const uint8_t* data, size_t len);
   
+  void send_command(const uint8_t* data, size_t len);
   uint16_t crc16(const uint8_t *data, uint8_t length);
 
  private:
   char *format_uart_data_(const uint8_t *uart_data, int length);
+  void handle_frame_(const uint8_t *frame, size_t len);
 
+  std::vector<uint8_t> rx_buffer_; // Buffer for incoming serial data
   std::vector<KC868HaBinarySensor *> binary_sensors_;
   std::vector<KC868HaSwitch *> switches_;
 };
