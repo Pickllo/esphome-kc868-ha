@@ -45,6 +45,9 @@ void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
 void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 
 void KC868HaComponent::loop() {
+    if (this->available()) {
+    ESP_LOGD(TAG, "Loop running. Bytes available: %d. Buffer size before read: %zu", this->available(), this->rx_buffer_.size());
+  }
   // 1. Read all available bytes into the buffer
   uint8_t byte;
   while (this->available()) {
