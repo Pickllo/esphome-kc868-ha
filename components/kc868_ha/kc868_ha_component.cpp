@@ -46,18 +46,21 @@ void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 void KC868HaComponent::update() {
 }
 void KC868HaComponent::loop() {
-    if (this->available()) {
-    ESP_LOGD(TAG, "Loop running. Bytes available: %d. Buffer size before read: %zu", this->available(), this->rx_buffer_.size());
-  }
-  // 1. Read all available bytes into the buffer
-  uint8_t byte;
+  const uint8_t FRAME_START_BYTE = 0x01; 
+  const size_t FRAME_LENGTH = 21;
+
   while (this->available()) {
+    uint8_t byte;
     this->read_byte(&byte);
     this->rx_buffer_.push_back(byte);
   }
-
-  // 2. Try to find a valid 21-byte frame in the buffer
-  while (this->rx_buffer_.size() >= 21) {
+  while (this->rx_buffer_.size() >= FRAME_LENGTH) {
+    if (this->rx_buffer_[0] != FRAME_START_BYTE) {
+      ESP_LOGD(TAG, "Discarding foreign byte: 0x%02X", this->rx_buffer_[0]);
+      this->rx_buffer_.erase(this->rx_buffer_.begin());
+      continue; 
+    }
+    ESP_LOGD(TAG, "Found potential frame start. Verifying CRC...");
     uint8_t* frame_start = this->rx_buffer_.data();
     uint8_t crc_data[19];
     memcpy(crc_data, frame_start, 19);
@@ -66,26 +69,19 @@ void KC868HaComponent::loop() {
     uint8_t calc_lo = static_cast<uint8_t>(calculated_crc & 0x00FF);
     uint8_t calc_hi = static_cast<uint8_t>((calculated_crc >> 8) & 0xFF);
 
-    ESP_LOGD(TAG, "CRC Check: Recv=[%02X %02X], Calc=[%02X %02X]", frame_start[19], frame_start[20], calc_lo, calc_hi);
-
-    // 3. Check for CRC match. Your logs confirm the order is Low Byte then High Byte.
     if (frame_start[19] == calc_lo && frame_start[20] == calc_hi) {
-      // CRC MATCH! This is a valid frame.
-      ESP_LOGD(TAG, "KC868-HA Received: %s", this->format_uart_data_(frame_start, 21));
-      this->handle_frame_(frame_start, 21);
+      ESP_LOGD(TAG, "CRC match! Received valid KC868 frame: %s", this->format_uart_data_(frame_start, FRAME_LENGTH));
+      this->handle_frame_(frame_start, FRAME_LENGTH);
       
-      // Remove the processed frame from the buffer
-      this->rx_buffer_.erase(this->rx_buffer_.begin(), this->rx_buffer_.begin() + 21);
+      this->rx_buffer_.erase(this->rx_buffer_.begin(), this->rx_buffer_.begin() + FRAME_LENGTH);
       
-      continue;
+      continue; 
+    } else {
+      ESP_LOGD(TAG, "CRC Mismatch on potential frame. Recv=[%02X %02X], Calc=[%02X %02X]", frame_start[19], frame_start[20], calc_lo, calc_hi);
+      this->rx_buffer_.erase(this->rx_buffer_.begin());
     }
-
-    // 4. CRC MISMATCH. Discard the first byte and slide the window forward.
-    this->rx_buffer_.erase(this->rx_buffer_.begin());
   }
-}
-
-void KC868HaComponent::handle_frame_(const uint8_t *frame, size_t len) {
+}void KC868HaComponent::handle_frame_(const uint8_t *frame, size_t len) {
   if (len < 21) return;
 
   for (auto *sensor : this->binary_sensors_) {
