@@ -130,13 +130,9 @@ void KC868HaSwitch::write_state(bool state) {
 }
 void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
     ESP_LOGD(TAG, "Sending command: %s", this->format_uart_data_(data, len));
-    
-    this->pin_tx_->digital_write(true);
 
     this->write_array(data, len);
     this->flush();
-
-    this->pin_tx_->digital_write(false);
 }
 }
 
