@@ -37,11 +37,6 @@ uint16_t KC868HaComponent::crc16(const uint8_t *data, uint8_t length) {
   return crc;
 }
 
-void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
-    this->write_array(data, len);
-    ESP_LOGD(TAG, "KC868-HA Sent: %s", this->format_uart_data_(data, len));
-}
-
 void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 void KC868HaComponent::update() {
 }
