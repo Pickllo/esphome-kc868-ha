@@ -114,7 +114,6 @@ void KC868HaSwitch::write_state(bool state) {
   if (state) {
     data_payload[20 - byte_index] |= (1 << bit_position);
   }
-}
 
   for (auto *other_switch : this->get_all_switches()) {
     if (other_switch == this) continue;
@@ -133,7 +132,7 @@ void KC868HaSwitch::write_state(bool state) {
   memcpy(final_frame, data_payload, sizeof(data_payload));
   final_frame[21] = static_cast<uint8_t>(crc & 0x00FF);
   final_frame[22] = static_cast<uint8_t>((crc >> 8) & 0xFF);
-
+}
 void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
     ESP_LOGD(TAG, "Sending command: %s", this->format_uart_data_(data, len));
     
