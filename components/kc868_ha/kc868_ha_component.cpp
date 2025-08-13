@@ -49,31 +49,22 @@ void KC868HaComponent::loop() {
   const uint8_t FRAME_START_BYTE = 0x01;
   const size_t FRAME_LENGTH = 21;
 
-  // 1. Read all available bytes from UART into our buffer
   while (this->available()) {
     uint8_t byte;
     this->read_byte(&byte);
     this->rx_buffer_.push_back(byte);
   }
-
-  // 2. Process the buffer. This loop now runs as long as the buffer is not empty.
   while (!this->rx_buffer_.empty()) {
-    // 3. Check if the first byte is the start of OUR frame.
     if (this->rx_buffer_[0] != FRAME_START_BYTE) {
-      // It's not for us. Discard this single byte and check the next one.
       ESP_LOGD(TAG, "Discarding foreign byte: 0x%02X", this->rx_buffer_[0]);
       this->rx_buffer_.erase(this->rx_buffer_.begin());
-      continue; // Go to the next iteration of the while loop
+      continue; 
     }
 
-    // 4. The first byte IS our start byte. Do we have enough bytes for a full frame?
     if (this->rx_buffer_.size() < FRAME_LENGTH) {
-      // Not enough bytes yet for a full frame. Break out and wait for more data.
       ESP_LOGD(TAG, "Found start byte, but waiting for full frame. Have %d of %d bytes.", this->rx_buffer_.size(), FRAME_LENGTH);
       break; 
     }
-
-    // 5. We have a start byte AND enough data for a full frame. Now, check the CRC.
     uint8_t* frame_data = this->rx_buffer_.data();
     uint8_t crc_data[19];
     memcpy(crc_data, frame_data, 19);
@@ -83,7 +74,6 @@ void KC868HaComponent::loop() {
     uint8_t calc_hi = static_cast<uint8_t>((calculated_crc >> 8) & 0xFF);
 
     if (frame_data[19] == calc_lo && frame_data[20] == calc_hi) {
-      // 6. CRC MATCH! Process the valid frame.
       ESP_LOGD(TAG, "CRC match! Received valid KC868 frame: %s", this->format_uart_data_(frame_data, FRAME_LENGTH));
       this->handle_frame_(frame_data, FRAME_LENGTH);
       
@@ -143,8 +133,16 @@ void KC868HaSwitch::write_state(bool state) {
   final_frame[21] = static_cast<uint8_t>(crc & 0x00FF);
   final_frame[22] = static_cast<uint8_t>((crc >> 8) & 0xFF);
 
-  this->parent_->send_command(final_frame, sizeof(final_frame));
-  this->publish_state(state);
+void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
+    ESP_LOGD(TAG, "Sending command: %s", this->format_uart_data_(data, len));
+    
+    this->pin_tx_->digital_write(true);
+
+    this->write_array(data, len);
+    this->flush();
+
+    this->pin_tx_->digital_write(false);
+}
 }
 
 } // namespace kc868_ha
