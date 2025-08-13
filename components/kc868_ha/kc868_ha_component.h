@@ -48,10 +48,9 @@ class KC868HaSwitch : public Component, public switch_::Switch {
   uint8_t bind_output_;
 };
 
-class KC868HaComponent : public Component, public uart::UARTDevice {
+class KC868HaComponent : public PollingComponent, public uart::UARTDevice {
  public:
-  // THIS IS THE CORRECTED CONSTRUCTOR
-  KC868HaComponent(uart::UARTComponent *parent) : uart::UARTDevice(parent) {}
+  KC868HaComponent(uart::UARTComponent *parent) : PollingComponent(1000), uart::UARTDevice(parent) {}
 
   void register_binary_sensor(KC868HaBinarySensor *obj) { this->binary_sensors_.push_back(obj); }
   void register_switch(KC868HaSwitch *obj) {
@@ -62,6 +61,7 @@ class KC868HaComponent : public Component, public uart::UARTDevice {
   const std::vector<KC868HaSwitch *>& get_switches() { return this->switches_; }
 
   void setup() override;
+  void update() override; // Add update() override
   void loop() override;
   void dump_config() override;
   
@@ -72,7 +72,7 @@ class KC868HaComponent : public Component, public uart::UARTDevice {
   char *format_uart_data_(const uint8_t *uart_data, int length);
   void handle_frame_(const uint8_t *frame, size_t len);
 
-  std::vector<uint8_t> rx_buffer_; // Buffer for incoming serial data
+  std::vector<uint8_t> rx_buffer_;
   std::vector<KC868HaBinarySensor *> binary_sensors_;
   std::vector<KC868HaSwitch *> switches_;
 };
