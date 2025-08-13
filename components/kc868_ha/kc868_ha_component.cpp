@@ -46,6 +46,7 @@ void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 void KC868HaComponent::update() {
 }
 void KC868HaComponent::loop() {
+  ESP_LOGE(TAG, "!!!!!!!!!! KC868 LOOP IS RUNNING !!!!!!!!!!");
   const uint8_t FRAME_START_BYTE = 0x01; 
   const size_t FRAME_LENGTH = 21;
 
