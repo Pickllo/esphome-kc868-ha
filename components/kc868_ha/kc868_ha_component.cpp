@@ -46,53 +46,51 @@ void KC868HaComponent::setup() { ESP_LOGD(TAG, "KC868HaComponent::setup"); }
 void KC868HaComponent::update() {
 }
 void KC868HaComponent::loop() {
-  ESP_LOGE(TAG, "!!!!!!!!!! KC868 LOOP IS RUNNING !!!!!!!!!!");
-  const uint8_t FRAME_START_BYTE = 0x01; 
+  const uint8_t FRAME_START_BYTE = 0x01;
   const size_t FRAME_LENGTH = 21;
 
+  // 1. Read all available bytes from UART into our buffer
   while (this->available()) {
     uint8_t byte;
     this->read_byte(&byte);
     this->rx_buffer_.push_back(byte);
   }
-  while (this->rx_buffer_.size() >= FRAME_LENGTH) {
+
+  // 2. Process the buffer. This loop now runs as long as the buffer is not empty.
+  while (!this->rx_buffer_.empty()) {
+    // 3. Check if the first byte is the start of OUR frame.
     if (this->rx_buffer_[0] != FRAME_START_BYTE) {
+      // It's not for us. Discard this single byte and check the next one.
       ESP_LOGD(TAG, "Discarding foreign byte: 0x%02X", this->rx_buffer_[0]);
       this->rx_buffer_.erase(this->rx_buffer_.begin());
-      continue; 
+      continue; // Go to the next iteration of the while loop
     }
-    ESP_LOGD(TAG, "Found potential frame start. Verifying CRC...");
-    uint8_t* frame_start = this->rx_buffer_.data();
+
+    // 4. The first byte IS our start byte. Do we have enough bytes for a full frame?
+    if (this->rx_buffer_.size() < FRAME_LENGTH) {
+      // Not enough bytes yet for a full frame. Break out and wait for more data.
+      ESP_LOGD(TAG, "Found start byte, but waiting for full frame. Have %d of %d bytes.", this->rx_buffer_.size(), FRAME_LENGTH);
+      break; 
+    }
+
+    // 5. We have a start byte AND enough data for a full frame. Now, check the CRC.
+    uint8_t* frame_data = this->rx_buffer_.data();
     uint8_t crc_data[19];
-    memcpy(crc_data, frame_start, 19);
+    memcpy(crc_data, frame_data, 19);
 
     uint16_t calculated_crc = this->crc16(crc_data, 19);
     uint8_t calc_lo = static_cast<uint8_t>(calculated_crc & 0x00FF);
     uint8_t calc_hi = static_cast<uint8_t>((calculated_crc >> 8) & 0xFF);
 
-    if (frame_start[19] == calc_lo && frame_start[20] == calc_hi) {
-      ESP_LOGD(TAG, "CRC match! Received valid KC868 frame: %s", this->format_uart_data_(frame_start, FRAME_LENGTH));
-      this->handle_frame_(frame_start, FRAME_LENGTH);
+    if (frame_data[19] == calc_lo && frame_data[20] == calc_hi) {
+      // 6. CRC MATCH! Process the valid frame.
+      ESP_LOGD(TAG, "CRC match! Received valid KC868 frame: %s", this->format_uart_data_(frame_data, FRAME_LENGTH));
+      this->handle_frame_(frame_data, FRAME_LENGTH);
       
       this->rx_buffer_.erase(this->rx_buffer_.begin(), this->rx_buffer_.begin() + FRAME_LENGTH);
-      
-      continue; 
     } else {
-      ESP_LOGD(TAG, "CRC Mismatch on potential frame. Recv=[%02X %02X], Calc=[%02X %02X]", frame_start[19], frame_start[20], calc_lo, calc_hi);
+      ESP_LOGD(TAG, "CRC Mismatch on potential frame. Discarding start byte.");
       this->rx_buffer_.erase(this->rx_buffer_.begin());
-    }
-  }
-}void KC868HaComponent::handle_frame_(const uint8_t *frame, size_t len) {
-  if (len < 21) return;
-
-  for (auto *sensor : this->binary_sensors_) {
-    if (sensor->get_target_relay_controller_addr() == frame[0] &&
-        sensor->get_switch_adapter_addr() == frame[3]) {
-      for (int i = 7; i <= 17; i += 2) {
-        if (frame[i] == (sensor->get_bind_output() + 100)) {
-          sensor->publish_state(frame[i + 1] == 1);
-        }
-      }
     }
   }
 }
