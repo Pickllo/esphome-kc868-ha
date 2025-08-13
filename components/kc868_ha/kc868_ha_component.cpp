@@ -95,7 +95,20 @@ void KC868HaSwitch::setup() {
       this->write_state(*restored);
   }
 }
+void KC868HaComponent::handle_frame_(const uint8_t *frame, size_t len) {
+  if (len < 21) return;
 
+  for (auto *sensor : this->binary_sensors_) {
+    if (sensor->get_target_relay_controller_addr() == frame[0] &&
+        sensor->get_switch_adapter_addr() == frame[3]) {
+      for (int i = 7; i <= 17; i += 2) {
+        if (frame[i] == (sensor->get_bind_output() + 100)) {
+          sensor->publish_state(frame[i + 1] == 1);
+        }
+      }
+    }
+  }
+}
 void KC868HaSwitch::dump_config() { LOG_SWITCH("", "KC868-HA Switch", this); }
 
 void KC868HaSwitch::write_state(bool state) {
