@@ -134,7 +134,6 @@ void KC868HaComponent::send_command(const uint8_t* data, size_t len) {
     this->write_array(data, len);
     this->flush();
 }
-}
 
 } // namespace kc868_ha
 } // namespace esphome
