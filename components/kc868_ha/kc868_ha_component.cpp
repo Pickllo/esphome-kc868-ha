@@ -114,6 +114,7 @@ void KC868HaSwitch::write_state(bool state) {
   if (state) {
     data_payload[20 - byte_index] |= (1 << bit_position);
   }
+}
 
   for (auto *other_switch : this->get_all_switches()) {
     if (other_switch == this) continue;
